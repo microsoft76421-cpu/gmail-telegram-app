@@ -1,523 +1,29 @@
-
-# #     # "code": "4/0AXlqoi60xzeGLjiaKFDk6_cpzHpm1y7yMQSGHlgQ6k3V_kFZJA-PV5qhh5mf39ODCXEs7w",
-# #     # "client_id": "523524526742-5k4e6900v367qh6bovfml4970e0ou0rq.apps.googleusercontent.com",
-# #     # "client_secret": "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",
-
-# import os
-# import base64
-# import datetime
-# import html
-# import re
-# import secrets
-# import threading
-# import time
-# import urllib.parse
-# import webbrowser
-# from http.server import BaseHTTPRequestHandler, HTTPServer
-
-# import requests
-
-# # ============================================================
-# # CONFIGURATION  (use NEW secrets — old ones were exposed)
-# # ============================================================
-
-# CLIENT_ID = "523524526742-5k4e6900v367qh6bovfml4970e0ou0rq.apps.googleusercontent.com"
-# CLIENT_SECRET = "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"
-
-# TELEGRAM_BOT_TOKEN = "8976557269:AAEAZ_KUFPrk2qxrSdoqcH7MCcFufwvx42k"
-# TELEGRAM_CHAT_ID = "8145643961"
-
-# REDIRECT_URI = "http://localhost:5500/oauth-callback"
-# PORT = 5500
-# CHECK_EVERY_SECONDS = 30
-
-# SCOPES = " ".join([
-#     "openid",
-#     "email",
-#     "profile",
-#     "https://www.googleapis.com/auth/gmail.readonly",
-# ])
-
-# auth_code = None
-# auth_error = None
-# auth_state = secrets.token_urlsafe(32)
-# auth_event = threading.Event()
-
-
-# class OAuthHandler(BaseHTTPRequestHandler):
-#     def do_GET(self):
-#         global auth_code, auth_error
-
-#         parsed = urllib.parse.urlparse(self.path)
-#         if parsed.path != "/oauth-callback":
-#             self.send_response(404)
-#             self.end_headers()
-#             self.wfile.write(b"Not found")
-#             return
-
-#         query = urllib.parse.parse_qs(parsed.query)
-#         returned_state = query.get("state", [""])[0]
-
-#         if not secrets.compare_digest(returned_state, auth_state):
-#             self.send_response(400)
-#             self.end_headers()
-#             self.wfile.write(b"Invalid OAuth state. Try again.")
-#             return
-
-#         if "error" in query:
-#             auth_error = query["error"][0]
-#             self.send_response(400)
-#             self.end_headers()
-#             self.wfile.write(b"Google authorization failed. Return to the terminal.")
-#             auth_event.set()
-#             return
-
-#         if "code" not in query:
-#             self.send_response(400)
-#             self.end_headers()
-#             self.wfile.write(b"No authorization code received.")
-#             return
-
-#         auth_code = query["code"][0]
-#         self.send_response(200)
-#         self.send_header("Content-Type", "text/html; charset=utf-8")
-#         self.end_headers()
-#         self.wfile.write(
-#             b"<h2>Google login successful.</h2>"
-#             b"<p>You can return to the terminal.</p>"
-#         )
-#         auth_event.set()
-
-#     def log_message(self, format, *args):
-#         return
-
-
-# def response_json(response):
-#     try:
-#         return response.json()
-#     except ValueError:
-#         return {"error": response.text[:500]}
-
-
-# def exchange_code_for_tokens(code):
-#     response = requests.post(
-#         "https://oauth2.googleapis.com/token",
-#         data={
-#             "code": code,
-#             "client_id": CLIENT_ID,
-#             "client_secret": CLIENT_SECRET,
-#             "redirect_uri": REDIRECT_URI,
-#             "grant_type": "authorization_code",
-#         },
-#         timeout=(10, 60),
-#     )
-#     return response.status_code, response_json(response)
-
-
-# def refresh_access_token(refresh_token):
-#     response = requests.post(
-#         "https://oauth2.googleapis.com/token",
-#         data={
-#             "client_id": CLIENT_ID,
-#             "client_secret": CLIENT_SECRET,
-#             "refresh_token": refresh_token,
-#             "grant_type": "refresh_token",
-#         },
-#         timeout=(10, 60),
-#     )
-#     return response.status_code, response_json(response)
-
-
-# def get_user_email(access_token):
-#     response = requests.get(
-#         "https://www.googleapis.com/oauth2/v3/userinfo",
-#         headers={"Authorization": f"Bearer {access_token}"},
-#         timeout=(10, 60),
-#     )
-#     data = response_json(response)
-#     if response.status_code != 200:
-#         raise RuntimeError(f"Could not get Google account details: {data}")
-#     return data.get("email"), data.get("name")
-
-
-# def send_telegram_message(text):
-#     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-#         print("Telegram configuration is missing.")
-#         return False
-
-#     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-#     chunks = [text[i:i + 3500] for i in range(0, len(text), 3500)] or [
-#         "A new unread email was received."
-#     ]
-
-#     try:
-#         for chunk in chunks:
-#             response = requests.post(
-#                 url,
-#                 data={"chat_id": TELEGRAM_CHAT_ID, "text": chunk},
-#                 timeout=(10, 30),
-#             )
-#             data = response_json(response)
-#             if response.status_code != 200 or not data.get("ok"):
-#                 print("Telegram delivery failed:", data)
-#                 return False
-#         return True
-#     except requests.exceptions.RequestException as exc:
-#         print("Telegram connection problem:", exc)
-#         return False
-
-
-# def list_unread_messages(access_token, max_results=100):
-#     url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
-#     messages = []
-#     page_token = None
-
-#     while True:
-#         params = {
-#             "maxResults": max_results,
-#             "q": "in:inbox is:unread",
-#         }
-#         if page_token:
-#             params["pageToken"] = page_token
-
-#         response = requests.get(
-#             url,
-#             headers={"Authorization": f"Bearer {access_token}"},
-#             params=params,
-#             timeout=(10, 60),
-#         )
-#         data = response_json(response)
-
-#         if response.status_code != 200:
-#             return response.status_code, [], data
-
-#         messages.extend(data.get("messages", []))
-#         page_token = data.get("nextPageToken")
-#         if not page_token:
-#             break
-
-#     return 200, messages, {}
-
-
-# def read_message(access_token, message_id):
-#     url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}"
-#     response = requests.get(
-#         url,
-#         headers={"Authorization": f"Bearer {access_token}"},
-#         params={"format": "full"},
-#         timeout=(10, 60),
-#     )
-#     return response.status_code, response_json(response)
-
-
-# def clean_email_body(body, is_html=False):
-#     if is_html:
-#         body = re.sub(
-#             r"<(script|style)\b[^>]*>.*?</\1>",
-#             " ",
-#             body,
-#             flags=re.I | re.S,
-#         )
-#         body = re.sub(r"<[^>]+>", " ", body)
-
-#     body = html.unescape(body)
-#     body = re.sub(r"\s+", " ", body).strip()
-#     return body
-
-
-# def decode_gmail_body(payload):
-#     bodies = []
-
-#     def walk(part):
-#         mime = part.get("mimeType", "")
-#         data = part.get("body", {}).get("data")
-#         if data and mime in ("text/plain", "text/html"):
-#             try:
-#                 decoded = base64.urlsafe_b64decode(
-#                     data + "=" * (-len(data) % 4)
-#                 ).decode("utf-8", errors="replace")
-#                 bodies.append((mime, decoded))
-#             except (ValueError, UnicodeError):
-#                 pass
-#         for child in part.get("parts", []) or []:
-#             walk(child)
-
-#     walk(payload)
-
-#     for mime, body in bodies:
-#         if mime == "text/plain":
-#             return clean_email_body(body)
-#     for mime, body in bodies:
-#         if mime == "text/html":
-#             return clean_email_body(body, is_html=True)
-#     return "[No readable message body found]"
-
-
-# def get_header(message, name):
-#     headers = message.get("payload", {}).get("headers", [])
-#     return next(
-#         (
-#             item.get("value", "")
-#             for item in headers
-#             if item.get("name", "").lower() == name.lower()
-#         ),
-#         "(not provided)",
-#     )
-
-
-# def make_email_notification(message):
-#     body = decode_gmail_body(message.get("payload", {}))
-#     received = ""
-#     internal_date = message.get("internalDate")
-#     if internal_date:
-#         received = datetime.datetime.fromtimestamp(
-#             int(internal_date) / 1000
-#         ).strftime("%Y-%m-%d %H:%M:%S")
-
-#     body_preview = body[:10000]
-#     if len(body) > len(body_preview):
-#         body_preview += "\n\n[Message preview shortened.]"
-
-#     return (
-#         "NEW UNREAD EMAIL\n\n"
-#         f"From: {get_header(message, 'From')}\n"
-#         f"To: {get_header(message, 'To')}\n"
-#         f"Subject: {get_header(message, 'Subject')}\n"
-#         f"Date: {get_header(message, 'Date')}\n"
-#         f"Received: {received or '(not provided)'}\n\n"
-#         "MESSAGE:\n"
-#         f"{body_preview}"
-#     )
-
-
-# def print_message(message):
-#     print("\n" + "=" * 60)
-#     print("NEW UNREAD EMAIL")
-#     print("=" * 60)
-#     print("From:", get_header(message, "From"))
-#     print("Subject:", get_header(message, "Subject"))
-#     print("Date:", get_header(message, "Date"))
-#     print("-" * 60)
-#     body = decode_gmail_body(message.get("payload", {}))
-#     print(body[:800])
-#     if len(body) > 800:
-#         print("[Terminal preview shortened to 800 characters.]")
-#     print("=" * 60, flush=True)
-
-
-# def process_messages(access_token, messages, seen_ids):
-#     for item in reversed(messages):
-#         message_id = item.get("id")
-#         if not message_id or message_id in seen_ids:
-#             continue
-
-#         status, message = read_message(access_token, message_id)
-
-#         if status == 401:
-#             print("Access token expired while reading a message.")
-#             return False
-
-#         if status != 200:
-#             print(f"Could not read message: {message}")
-#             continue
-
-#         print_message(message)
-#         notification = make_email_notification(message)
-
-#         if send_telegram_message(notification):
-#             print("Successfully sent email to Telegram.")
-#             seen_ids.add(message_id)
-#         else:
-#             print("Telegram delivery failed. This message will be retried.")
-
-#     return True
-
-
-# def main():
-#     global auth_code, auth_error
-
-#     if not CLIENT_ID or not CLIENT_SECRET or "YOUR_" in CLIENT_ID or "YOUR_" in CLIENT_SECRET:
-#         print("Set CLIENT_ID and CLIENT_SECRET first.")
-#         return
-
-#     if (
-#         not TELEGRAM_BOT_TOKEN
-#         or not TELEGRAM_CHAT_ID
-#         or "YOUR_" in TELEGRAM_BOT_TOKEN
-#         or "YOUR_" in TELEGRAM_CHAT_ID
-#     ):
-#         print("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID first.")
-#         return
-
-#     try:
-#         server = HTTPServer(("127.0.0.1", PORT), OAuthHandler)
-#     except OSError as exc:
-#         print(f"Could not start OAuth server on port {PORT}: {exc}")
-#         print("Close the program using port 5500 and try again.")
-#         return
-
-#     try:
-#         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-#         server_thread.start()
-
-#         print("=" * 60)
-#         print("GMAIL TO TELEGRAM WATCHER")
-#         print("=" * 60)
-
-#         params = {
-#             "client_id": CLIENT_ID,
-#             "redirect_uri": REDIRECT_URI,
-#             "response_type": "code",
-#             "scope": SCOPES,
-#             "state": auth_state,
-#             "prompt": "consent",
-#             "access_type": "offline",
-#         }
-#         auth_url = (
-#             "https://accounts.google.com/o/oauth2/v2/auth?"
-#             + urllib.parse.urlencode(params)
-#         )
-
-#         print("Opening Google sign-in...")
-#         webbrowser.open(auth_url)
-
-#         while not auth_event.wait(timeout=0.5):
-#             pass
-
-#         if auth_error:
-#             print("Google authorization failed:", auth_error)
-#             return
-#         if not auth_code:
-#             print("No authorization code received.")
-#             return
-
-#         status, token_data = exchange_code_for_tokens(auth_code)
-#         if status != 200:
-#             print("Google token exchange failed:", token_data)
-#             return
-
-#         access_token = token_data.get("access_token")
-#         refresh_token = token_data.get("refresh_token")
-#         if not access_token:
-#             print("Google did not return an access token.")
-#             return
-
-#         email, name = get_user_email(access_token)
-#         print("Connected Gmail:", email)
-#         if name:
-#             print("Account name:", name)
-
-#         if not refresh_token:
-#             print("Warning: no refresh token returned.")
-
-#         if not send_telegram_message(
-#             f"Gmail watcher connected.\nAccount: {email}\n"
-#             "Monitoring new unread inbox messages."
-#         ):
-#             print("Could not send the Telegram test notification.")
-#             return
-
-#         print("Telegram test notification sent.")
-#         print(f"Checking every {CHECK_EVERY_SECONDS} seconds.")
-
-#         status, messages, raw = list_unread_messages(access_token)
-#         if status != 200:
-#             print("Could not load unread messages:", raw)
-#             return
-
-#         seen_ids = {item["id"] for item in messages if item.get("id")}
-#         print(f"Existing unread messages: {len(seen_ids)}")
-#         print("Only newly detected unread emails will be sent.")
-#         print("Watcher is running. Press Ctrl+C to stop.\n")
-
-#         while True:
-#             time.sleep(CHECK_EVERY_SECONDS)
-#             try:
-#                 status, messages, raw = list_unread_messages(access_token)
-
-#                 if status == 401 and refresh_token:
-#                     print("Refreshing Google access token...")
-#                     refresh_status, refresh_data = refresh_access_token(refresh_token)
-#                     if refresh_status == 200 and refresh_data.get("access_token"):
-#                         access_token = refresh_data["access_token"]
-#                         print("Access token refreshed.")
-#                         status, messages, raw = list_unread_messages(access_token)
-#                     else:
-#                         print("Token refresh failed:", refresh_data)
-#                         continue
-
-#                 now = datetime.datetime.now().strftime("%H:%M:%S")
-
-#                 if status != 200:
-#                     print(f"[{now}] Gmail API error: {raw}")
-#                     continue
-
-#                 new_messages = [
-#                     item for item in messages if item.get("id") not in seen_ids
-#                 ]
-
-#                 if new_messages:
-#                     print(f"[{now}] Found {len(new_messages)} new unread email(s).")
-#                     success = process_messages(access_token, new_messages, seen_ids)
-#                     if not success and refresh_token:
-#                         refresh_status, refresh_data = refresh_access_token(refresh_token)
-#                         if refresh_status == 200 and refresh_data.get("access_token"):
-#                             access_token = refresh_data["access_token"]
-#                             process_messages(access_token, new_messages, seen_ids)
-#                         else:
-#                             print("Token refresh failed:", refresh_data)
-#                 else:
-#                     print(f"[{now}] No new unread messages.")
-
-#             except requests.exceptions.RequestException as exc:
-#                 print("[Network problem]", exc)
-#             except (ValueError, KeyError) as exc:
-#                 print("[Response processing problem]", exc)
-
-#     except KeyboardInterrupt:
-#         print("\nWatcher stopped.")
-#     except requests.exceptions.RequestException as exc:
-#         print("Network request failed:", exc)
-#     finally:
-#         server.shutdown()
-#         server.server_close()
-
-
-# if __name__ == "__main__":
-#     main()
-
-
-
+import os
 import base64
 import datetime
 import html
-import os
 import re
 import secrets
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import requests
+from flask import Flask, redirect, request, jsonify, session, render_template_string
 
 # ============================================================
-# CONFIG from environment (set these in Render Dashboard)
+# CONFIGURATION — ENTER YOUR ROTATED CREDENTIALS
 # ============================================================
+CLIENT_ID = "523524526742-5k4e6900v367qh6bovfml4970e0ou0rq.apps.googleusercontent.com"
+CLIENT_SECRET = "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"
 
-CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "523524526742-5k4e6900v367qh6bovfml4970e0ou0rq.apps.googleusercontent.com").strip()
-CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "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").strip()
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8976557269:AAEAZ_KUFPrk2qxrSdoqcH7MCcFufwvx42k").strip()
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "8145643961").strip()
+TELEGRAM_BOT_TOKEN = "8976557269:AAEAZ_KUFPrk2qxrSdoqcH7MCcFufwvx42k"
+TELEGRAM_CHAT_ID = "8145643961"
 
-# Example: https://gmail-telegram-app.onrender.com/oauth-callback
-REDIRECT_URI = os.environ.get(
-    "REDIRECT_URI",
-    "https://YOUR-SERVICE.onrender.com/oauth-callback",
-).strip()
-
-PORT = int(os.environ.get("PORT", "10000"))  # Render sets PORT
-CHECK_EVERY_SECONDS = int(os.environ.get("CHECK_EVERY_SECONDS", "30"))
+# Local development URL. For deployment, change this to your
+# public HTTPS URL and register it in Google Cloud Console.
+BASE_URL = "http://localhost:5500"
+REDIRECT_URI = BASE_URL + "/oauth-callback"
 
 SCOPES = " ".join([
     "openid",
@@ -526,67 +32,23 @@ SCOPES = " ".join([
     "https://www.googleapis.com/auth/gmail.readonly",
 ])
 
-auth_code = None
-auth_error = None
-auth_state = secrets.token_urlsafe(32)
-auth_event = threading.Event()
+CHECK_EVERY_SECONDS = 30
 
+app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)
 
-class OAuthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        global auth_code, auth_error
-
-        parsed = urllib.parse.urlparse(self.path)
-
-        # Health check for Render
-        if parsed.path in ("/", "/health"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"ok")
-            return
-
-        if parsed.path != "/oauth-callback":
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not found")
-            return
-
-        query = urllib.parse.parse_qs(parsed.query)
-        returned_state = query.get("state", [""])[0]
-
-        if not secrets.compare_digest(returned_state, auth_state):
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(b"Invalid OAuth state.")
-            return
-
-        if "error" in query:
-            auth_error = query["error"][0]
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(b"Google authorization failed.")
-            auth_event.set()
-            return
-
-        if "code" not in query:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(b"No authorization code.")
-            return
-
-        auth_code = query["code"][0]
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(
-            b"<h2>Google login successful.</h2>"
-            b"<p>You can close this tab. Check Render logs.</p>"
-        )
-        auth_event.set()
-
-    def log_message(self, format, *args):
-        print("HTTP:", format % args)
+# For local testing only: memory state is lost when the process stops.
+state = {
+    "access_token": None,
+    "refresh_token": None,
+    "email": None,
+    "name": None,
+    "seen_ids": set(),
+    "watcher_running": False,
+    "last_check": None,
+    "last_error": None,
+}
+state_lock = threading.RLock()
 
 
 def response_json(response):
@@ -606,7 +68,7 @@ def exchange_code_for_tokens(code):
             "redirect_uri": REDIRECT_URI,
             "grant_type": "authorization_code",
         },
-        timeout=(10, 60),
+        timeout=(10, 30),
     )
     return response.status_code, response_json(response)
 
@@ -620,7 +82,7 @@ def refresh_access_token(refresh_token):
             "refresh_token": refresh_token,
             "grant_type": "refresh_token",
         },
-        timeout=(10, 60),
+        timeout=(10, 30),
     )
     return response.status_code, response_json(response)
 
@@ -629,22 +91,29 @@ def get_user_email(access_token):
     response = requests.get(
         "https://www.googleapis.com/oauth2/v3/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
-        timeout=(10, 60),
+        timeout=(10, 30),
     )
     data = response_json(response)
     if response.status_code != 200:
-        raise RuntimeError(f"Could not get account details: {data}")
+        raise RuntimeError(f"Google account lookup failed: {data}")
     return data.get("email"), data.get("name")
 
 
-def send_telegram_message(text):
+def send_telegram_message(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram not configured; printing only.")
-        print(text)
-        return True
+        print("Telegram configuration is missing.")
+        return False
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    chunks = [text[i:i + 3500] for i in range(0, len(text), 3500)] or ["(empty)"]
+    url = (
+        "https://api.telegram.org/bot"
+        + TELEGRAM_BOT_TOKEN
+        + "/sendMessage"
+    )
+
+    chunks = [
+        message[i:i + 3500]
+        for i in range(0, len(message), 3500)
+    ] or ["A new unread email was received."]
 
     try:
         for chunk in chunks:
@@ -658,18 +127,21 @@ def send_telegram_message(text):
                 print("Telegram delivery failed:", data)
                 return False
         return True
-    except requests.exceptions.RequestException as exc:
+    except requests.RequestException as exc:
         print("Telegram connection problem:", exc)
         return False
 
 
-def list_unread_messages(access_token, max_results=50):
+def list_unread_messages(access_token, max_results=100):
     url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
     messages = []
     page_token = None
 
     while True:
-        params = {"maxResults": max_results, "q": "in:inbox is:unread"}
+        params = {
+            "maxResults": max_results,
+            "q": "in:inbox is:unread",
+        }
         if page_token:
             params["pageToken"] = page_token
 
@@ -677,9 +149,10 @@ def list_unread_messages(access_token, max_results=50):
             url,
             headers={"Authorization": f"Bearer {access_token}"},
             params=params,
-            timeout=(10, 60),
+            timeout=(10, 30),
         )
         data = response_json(response)
+
         if response.status_code != 200:
             return response.status_code, [], data
 
@@ -692,12 +165,15 @@ def list_unread_messages(access_token, max_results=50):
 
 
 def read_message(access_token, message_id):
-    url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}"
+    url = (
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+        + urllib.parse.quote(message_id, safe="")
+    )
     response = requests.get(
         url,
         headers={"Authorization": f"Bearer {access_token}"},
         params={"format": "full"},
-        timeout=(10, 60),
+        timeout=(10, 30),
     )
     return response.status_code, response_json(response)
 
@@ -711,6 +187,7 @@ def clean_email_body(body, is_html=False):
             flags=re.I | re.S,
         )
         body = re.sub(r"<[^>]+>", " ", body)
+
     body = html.unescape(body)
     return re.sub(r"\s+", " ", body).strip()
 
@@ -721,6 +198,7 @@ def decode_gmail_body(payload):
     def walk(part):
         mime = part.get("mimeType", "")
         data = part.get("body", {}).get("data")
+
         if data and mime in ("text/plain", "text/html"):
             try:
                 decoded = base64.urlsafe_b64decode(
@@ -729,6 +207,7 @@ def decode_gmail_body(payload):
                 bodies.append((mime, decoded))
             except (ValueError, UnicodeError):
                 pass
+
         for child in part.get("parts", []) or []:
             walk(child)
 
@@ -737,9 +216,11 @@ def decode_gmail_body(payload):
     for mime, body in bodies:
         if mime == "text/plain":
             return clean_email_body(body)
+
     for mime, body in bodies:
         if mime == "text/html":
             return clean_email_body(body, is_html=True)
+
     return "[No readable message body found]"
 
 
@@ -759,6 +240,7 @@ def make_email_notification(message):
     body = decode_gmail_body(message.get("payload", {}))
     received = ""
     internal_date = message.get("internalDate")
+
     if internal_date:
         received = datetime.datetime.fromtimestamp(
             int(internal_date) / 1000
@@ -780,176 +262,311 @@ def make_email_notification(message):
     )
 
 
-def print_message(message):
-    print("\n" + "=" * 60)
-    print("NEW UNREAD EMAIL")
-    print("=" * 60)
-    print("From:", get_header(message, "From"))
-    print("Subject:", get_header(message, "Subject"))
-    print("Date:", get_header(message, "Date"))
-    print("-" * 60)
-    body = decode_gmail_body(message.get("payload", {}))
-    print(body[:800])
-    print("=" * 60, flush=True)
-
-
-def process_messages(access_token, messages, seen_ids):
+def process_messages(access_token, messages):
     for item in reversed(messages):
         message_id = item.get("id")
-        if not message_id or message_id in seen_ids:
-            continue
+        with state_lock:
+            if not message_id or message_id in state["seen_ids"]:
+                continue
 
         status, message = read_message(access_token, message_id)
+
         if status == 401:
-            print("Access token expired while reading a message.")
             return False
+
         if status != 200:
-            print(f"Could not read message: {message}")
+            print("Could not read message:", message)
             continue
 
-        print_message(message)
         notification = make_email_notification(message)
 
         if send_telegram_message(notification):
-            print("Notification sent.")
-            seen_ids.add(message_id)
+            with state_lock:
+                state["seen_ids"].add(message_id)
+            print("Sent email notification:", get_header(message, "Subject"))
         else:
-            print("Telegram failed; will retry this message.")
+            print("Telegram delivery failed; will retry.")
 
     return True
 
 
-def main():
-    global auth_code, auth_error
+def watcher_loop():
+    while True:
+        with state_lock:
+            if not state["watcher_running"]:
+                return
+            access_token = state["access_token"]
+            refresh_token = state["refresh_token"]
 
-    if not CLIENT_ID or not CLIENT_SECRET:
-        print("Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Render env.")
-        return
-
-    if "YOUR-SERVICE" in REDIRECT_URI:
-        print("Set REDIRECT_URI to your real Render URL + /oauth-callback")
-        return
-
-    try:
-        # Required for Render: bind 0.0.0.0 and use PORT
-        server = HTTPServer(("0.0.0.0", PORT), OAuthHandler)
-    except OSError as exc:
-        print(f"Could not start server on port {PORT}: {exc}")
-        return
-
-    try:
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        print("=" * 60)
-        print("GMAIL WATCHER (Render)")
-        print("=" * 60)
-        print(f"Listening on 0.0.0.0:{PORT}")
-        print(f"Redirect URI: {REDIRECT_URI}")
-
-        params = {
-            "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
-            "response_type": "code",
-            "scope": SCOPES,
-            "state": auth_state,
-            "prompt": "consent",
-            "access_type": "offline",
-        }
-        auth_url = (
-            "https://accounts.google.com/o/oauth2/v2/auth?"
-            + urllib.parse.urlencode(params)
-        )
-
-        # No browser on Render — open this URL on your PC
-        print("\nOpen this URL in YOUR browser (your Gmail only):\n")
-        print(auth_url)
-        print("\nWaiting for OAuth callback...")
-
-        while not auth_event.wait(timeout=0.5):
-            pass
-
-        if auth_error:
-            print("Google authorization failed:", auth_error)
-            return
-        if not auth_code:
-            print("No authorization code received.")
-            return
-
-        status, token_data = exchange_code_for_tokens(auth_code)
-        if status != 200:
-            print("Token exchange failed:", token_data)
-            return
-
-        access_token = token_data.get("access_token")
-        refresh_token = token_data.get("refresh_token")
         if not access_token:
-            print("No access token returned.")
-            return
+            time.sleep(5)
+            continue
 
-        email, name = get_user_email(access_token)
-        print("Connected Gmail:", email)
-        if name:
-            print("Account name:", name)
+        try:
+            status, messages, raw = list_unread_messages(access_token)
 
-        send_telegram_message(
-            f"Gmail watcher connected.\nAccount: {email}\n"
-            f"Checking every {CHECK_EVERY_SECONDS}s."
-        )
+            if status == 401 and refresh_token:
+                refresh_status, refresh_data = refresh_access_token(
+                    refresh_token
+                )
 
-        status, messages, raw = list_unread_messages(access_token)
-        if status != 200:
-            print("Could not load unread messages:", raw)
-            return
-
-        seen_ids = {item["id"] for item in messages if item.get("id")}
-        print(f"Existing unread: {len(seen_ids)}")
-        print("Watching for NEW unread mail only.\n")
-
-        while True:
-            time.sleep(CHECK_EVERY_SECONDS)
-            try:
-                status, messages, raw = list_unread_messages(access_token)
-
-                if status == 401 and refresh_token:
-                    print("Refreshing access token...")
-                    rs, rd = refresh_access_token(refresh_token)
-                    if rs == 200 and rd.get("access_token"):
-                        access_token = rd["access_token"]
-                        status, messages, raw = list_unread_messages(access_token)
-                    else:
-                        print("Refresh failed:", rd)
-                        continue
-
-                now = datetime.datetime.now().strftime("%H:%M:%S")
-                if status != 200:
-                    print(f"[{now}] Gmail API error: {raw}")
+                if refresh_status == 200 and refresh_data.get("access_token"):
+                    access_token = refresh_data["access_token"]
+                    with state_lock:
+                        state["access_token"] = access_token
+                    status, messages, raw = list_unread_messages(access_token)
+                else:
+                    with state_lock:
+                        state["last_error"] = "Token refresh failed"
+                    time.sleep(CHECK_EVERY_SECONDS)
                     continue
 
+            with state_lock:
+                state["last_check"] = datetime.datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
+            if status != 200:
+                with state_lock:
+                    state["last_error"] = str(raw)
+                print("Gmail API error:", raw)
+            else:
+                with state_lock:
+                    state["last_error"] = None
+                    known_ids = set(state["seen_ids"])
+
                 new_messages = [
-                    m for m in messages if m.get("id") not in seen_ids
+                    item for item in messages
+                    if item.get("id") not in known_ids
                 ]
 
                 if new_messages:
-                    print(f"[{now}] {len(new_messages)} new unread message(s).")
-                    ok = process_messages(access_token, new_messages, seen_ids)
-                    if not ok and refresh_token:
-                        rs, rd = refresh_access_token(refresh_token)
-                        if rs == 200 and rd.get("access_token"):
-                            access_token = rd["access_token"]
-                            process_messages(access_token, new_messages, seen_ids)
+                    process_messages(access_token, new_messages)
                 else:
-                    print(f"[{now}] No new unread messages.")
+                    print("No new unread messages.")
 
-            except requests.exceptions.RequestException as exc:
-                print("[Network problem]", exc)
-            except (ValueError, KeyError) as exc:
-                print("[Response problem]", exc)
+        except Exception as exc:
+            with state_lock:
+                state["last_error"] = str(exc)
+            print("Watcher error:", exc)
 
-    except KeyboardInterrupt:
-        print("\nStopped.")
-    finally:
-        server.shutdown()
-        server.server_close()
+        time.sleep(CHECK_EVERY_SECONDS)
 
+
+# ============================================================
+# FRONTEND — SERVED DIRECTLY BY FLASK
+# ============================================================
+@app.route("/")
+def index():
+    return render_template_string("""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Inbox — Google Connection</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  min-height:100vh; display:flex; justify-content:center;
+  align-items:center; background:#0a0608;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  color:#f5e6ec; padding:20px;
+}
+.container {
+  width:100%; max-width:520px; text-align:center;
+  padding:2.5rem 2rem; border:1px solid #3a202b;
+  border-radius:22px; background:#110b0e;
+  box-shadow:0 18px 60px #0008;
+}
+h1 {
+  font-size:1.9rem; margin-bottom:1rem;
+  background:linear-gradient(135deg,#fff,#ff8fab);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+}
+p { color:#c5aab6; line-height:1.65; margin-bottom:1.2rem; }
+.notice {
+  text-align:left; padding:14px; margin:20px 0;
+  background:#1b1016; border:1px solid #49303b;
+  border-radius:12px; font-size:.92rem;
+}
+button {
+  background:linear-gradient(135deg,#ff4d7a,#e63b6a);
+  color:white; border:0; padding:1rem 1.5rem;
+  font-size:1rem; font-weight:600; border-radius:50px;
+  cursor:pointer; box-shadow:0 8px 25px #ff4d7a44;
+}
+button:hover { filter:brightness(1.08); }
+button:disabled { opacity:.6; cursor:not-allowed; }
+.status { margin-top:1.5rem; color:#ff8fab; min-height:24px; }
+.small { font-size:.8rem; color:#a88b98; margin-top:18px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Private Inbox</h1>
+  <p>Connect your Google account</p>
+
+  <div class="notice">
+    <strong>Before you continue</strong>
+    <p style="margin:8px 0 0">
+      Click the button below to see more.
+    </p>
+  </div>
+
+  <button id="connectBtn">Continue with Google</button>
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+
+</div>
+<script>
+const btn = document.getElementById("connectBtn");
+const status = document.getElementById("status");
+
+btn.addEventListener("click", async () => {
+  btn.disabled = true;
+  btn.textContent = "Connecting...";
+  status.textContent = "Preparing Google authorization...";
+
+  try {
+    const res = await fetch("/api/login", {
+      headers: {"Accept": "application/json"}
+    });
+    const data = await res.json();
+
+    if (!res.ok || !data.auth_url) {
+      throw new Error(data.error || "Could not start Google authorization.");
+    }
+
+    window.location.assign(data.auth_url);
+  } catch (err) {
+    status.textContent = err.message || "Cannot connect to server.";
+    btn.disabled = false;
+    btn.textContent = "Continue with Google";
+  }
+});
+</script>
+</body>
+</html>
+""")
+
+
+@app.route("/api/login")
+def api_login():
+    auth_state = secrets.token_urlsafe(32)
+    session["oauth_state"] = auth_state
+
+    params = {
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": SCOPES,
+        "state": auth_state,
+        "prompt": "consent",
+        "access_type": "offline",
+    }
+
+    auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        + urllib.parse.urlencode(params)
+    )
+    return jsonify({"auth_url": auth_url})
+
+
+@app.route("/oauth-callback")
+def oauth_callback():
+    returned_state = request.args.get("state", "")
+    expected_state = session.get("oauth_state", "")
+
+    if not expected_state or not secrets.compare_digest(
+        returned_state, expected_state
+    ):
+        return "Invalid OAuth state. Please try again.", 400
+
+    session.pop("oauth_state", None)
+
+    if request.args.get("error"):
+        return "Google authorization was cancelled or denied.", 400
+
+    code = request.args.get("code")
+    if not code:
+        return "No authorization code received.", 400
+
+    status, token_data = exchange_code_for_tokens(code)
+    if status != 200:
+        print("Token exchange failed:", token_data)
+        return "Google token exchange failed. Check the server configuration.", 400
+
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+
+    if not access_token:
+        return "No access token received.", 400
+
+    try:
+        email, name = get_user_email(access_token)
+    except Exception:
+        return "Could not retrieve Google account details.", 400
+
+    if not email:
+        return "Google did not return an email address.", 400
+
+    # Preserve an existing refresh token if Google does not issue another.
+    with state_lock:
+        if not refresh_token:
+            refresh_token = state["refresh_token"]
+
+        state["access_token"] = access_token
+        state["refresh_token"] = refresh_token
+        state["email"] = email
+        state["name"] = name
+
+    # Do not forward historical unread messages on initial connection.
+    status, messages, _ = list_unread_messages(access_token)
+    if status == 200:
+        with state_lock:
+            state["seen_ids"].update(
+                item["id"] for item in messages if item.get("id")
+            )
+
+    with state_lock:
+        should_start = not state["watcher_running"]
+        if should_start:
+            state["watcher_running"] = True
+
+    if should_start:
+        threading.Thread(target=watcher_loop, daemon=True).start()
+
+    send_telegram_message(
+        "Gmail watcher connected.\n"
+        f"Account: {email}\n"
+        "Monitoring new unread inbox messages."
+    )
+
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport"
+content="width=device-width,initial-scale=1">
+<title>Google Connected</title></head>
+<body style="background:#0a0608;color:#f5e6ec;font-family:sans-serif;
+display:flex;justify-content:center;align-items:center;min-height:100vh">
+<div style="text-align:center;padding:24px">
+<h2 style="color:#ff8fab">Google Connected</h2>
+<p>Authorization succeeded. The inbox watcher has started.</p>
+<p>You may close this page.</p>
+</div>
+</body></html>
+"""
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 5500))
+    print("=" * 50)
+    print("Gmail → Telegram Watcher starting...")
+    print(f"Running on port {port}")
+    print("=" * 50)
+    app.run(host="0.0.0.0", port=port, debug=False)
