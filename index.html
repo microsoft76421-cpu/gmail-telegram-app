@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connect Google Account</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #0a0608;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #f5e6ec;
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.8rem;
+      background: linear-gradient(135deg, #fff, #ff8fab);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    p {
+      color: #b89aa8;
+      margin-bottom: 2.5rem;
+      font-size: 1rem;
+    }
+
+    button {
+      background: linear-gradient(135deg, #ff4d7a, #e63b6a);
+      color: white;
+      border: none;
+      padding: 1rem 2.5rem;
+      font-size: 1.15rem;
+      font-weight: 600;
+      border-radius: 50px;
+      cursor: pointer;
+      box-shadow: 0 8px 25px rgba(255, 77, 122, 0.4);
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(255, 77, 122, 0.5);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status {
+      margin-top: 1.8rem;
+      font-size: 0.95rem;
+      color: #ff8fab;
+      min-height: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Private Inbox</h1>
+    <p>Click the button below to connect your Google account</p>
+
+    <button id="connectBtn">Connect to Google Account</button>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const btn = document.getElementById("connectBtn");
+    const status = document.getElementById("status");
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Connecting...";
+      status.textContent = "Redirecting to Google...";
+
+      try {
+        const res = await fetch("/api/login");
+        const data = await res.json();
+
+        if (data.auth_url) {
+          // Redirect to Google OAuth
+          window.location.href = data.auth_url;
+        } else {
+          status.textContent = data.error || "Something went wrong";
+          btn.disabled = false;
+          btn.textContent = "Connect to Google Account";
+        }
+      } catch (err) {
+        status.textContent = "Cannot connect to server";
+        btn.disabled = false;
+        btn.textContent = "Connect to Google Account";
+      }
+    });
+  </script>
+</body>
+</html>

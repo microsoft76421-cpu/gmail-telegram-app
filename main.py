@@ -22,7 +22,7 @@ TELEGRAM_CHAT_ID = "8145643961"
 
 # Local development URL. For deployment, change this to your
 # public HTTPS URL and register it in Google Cloud Console.
-BASE_URL = "http://localhost:5500"
+BASE_URL = "https://gmail-telegram-app-9.onrender.com"
 REDIRECT_URI = BASE_URL + "/oauth-callback"
 
 SCOPES = " ".join([
