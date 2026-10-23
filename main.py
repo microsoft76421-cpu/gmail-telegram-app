@@ -563,6 +563,44 @@ display:flex;justify-content:center;align-items:center;min-height:100vh">
 def health():
     return jsonify({"status": "ok"})
 
+
+@app.route("/privacy")
+def privacy():
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy</title>
+</head>
+<body style="font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 16px">
+  <h1>Privacy Policy</h1>
+  <p>Last updated: October 23, 2026</p>
+  <p>This app lets you connect your own Google account to read your Gmail (readonly)
+  so you can get notifications about new emails.</p>
+
+  <h2>Data we access</h2>
+  <ul>
+    <li>Your Google email address</li>
+    <li>Gmail messages you authorize (gmail.readonly)</li>
+  </ul>
+
+  <h2>How we use data</h2>
+  <p>Only to provide the notifications you asked for. We do not sell your data.</p>
+
+  <h2>Your control</h2>
+  <p>You can revoke access at
+    <a href="https://myaccount.google.com/permissions">Google Account permissions</a>.
+  </p>
+
+  <h2>Contact</h2>
+  <p>Email: nbroy6969@gmail.com</p>
+</body>
+</html>
+"""
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5500))
     print("=" * 50)
@@ -570,3 +608,14 @@ if __name__ == "__main__":
     print(f"Running on port {port}")
     print("=" * 50)
     app.run(host="0.0.0.0", port=port, debug=False)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5500))
+    print("=" * 50)
+    print("Gmail → Telegram Watcher starting...")
+    print(f"Running on port {port}")
+    print("=" * 50)
+    app.run(host="0.0.0.0", port=port, debug=False)
+
+
+
